@@ -355,6 +355,8 @@ def render_initial_markdown(
         sender_display = f"{sender_display} ({sender_address})"
 
     lines = [
+        "tags:: email",
+        "",
         f"- {date_link}",
         f"\t- Subject: {subject}",
         f"\t- From: {sender_display}",
