@@ -90,6 +90,8 @@ The script will:
 
 Run the script on a schedule using your preferred scheduler (cron, Windows Task Scheduler, GitHub Actions with secrets, etc.). Ensure the environment variables and credentials are available in that runtime. For delegated auth, schedule runs on the same machine or environment that has access to the token cache.
 
+See [docs/scheduling.md](docs/scheduling.md) for a macOS cron setup that activates the virtualenv and logs output.
+
 ## Testing notes
 
 The script assumes network access to Microsoft Graph, OpenAI, and Google Drive APIs. Run it in an environment with the appropriate firewall permissions and secrets configured.
