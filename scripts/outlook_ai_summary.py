@@ -330,6 +330,10 @@ def wikilink_today() -> str:
     return f"[[{month} {ordinal(now.day)}, {now.year}]]"
 
 
+def current_run_timestamp() -> str:
+    return datetime.datetime.now().isoformat(timespec="seconds")
+
+
 def sanitize_filename(name: str) -> str:
     cleaned = re.sub(r"[\\/:*?\"<>|]", "-", name)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
@@ -363,7 +367,11 @@ def render_initial_markdown(
 
 
 def render_update_section(
-    message: Dict, summary: str, date_link: str, subject: str
+    message: Dict,
+    summary: str,
+    date_link: str,
+    subject: str,
+    updated_at: str,
 ) -> str:
     sender = message.get("from", {}).get("emailAddress", {})
     sender_name = sender.get("name", "Unknown sender")
@@ -381,6 +389,8 @@ def render_update_section(
     ]
     if received:
         lines.append(f"\t- Received: {received}")
+    if updated_at:
+        lines.append(f"\t- Updated: {updated_at}")
 
     summary_lines = [f"\t{line}" for line in summary.splitlines() if line.strip()]
     lines.extend(summary_lines)
@@ -558,6 +568,7 @@ def process_messages():
             plain_text = html_to_text(html_body)
             summary = summarize_email(client, subject, plain_text)
             date_link = wikilink_today()
+            updated_at = current_run_timestamp()
 
             safe_subject = sanitize_filename(subject) or "untitled"
             filename = f"{safe_subject}.md"
@@ -569,7 +580,7 @@ def process_messages():
                     drive_service, existing_file["id"]
                 )
                 new_section = render_update_section(
-                    message, summary, date_link, subject
+                    message, summary, date_link, subject, updated_at
                 )
                 combined = append_section(existing_content, new_section)
                 upload_info = update_drive_markdown(
