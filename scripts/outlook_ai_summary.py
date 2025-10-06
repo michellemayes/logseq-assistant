@@ -24,6 +24,7 @@ DEFAULT_SECRETS_FILE = "secrets.env"
 DEFAULT_TOKEN_CACHE_FILE = ".ms_token_cache.json"
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 SUBJECT_PREFIX_PATTERN = re.compile(r"^\s*(re|fw|fwd|aw|wg):\s*", re.IGNORECASE)
+SUBJECT_BRACKET_PREFIX = re.compile(r"^\s*\[[^\]]*\]\s*")
 
 
 def load_env_file(file_path: str) -> None:
@@ -312,7 +313,7 @@ def strip_subject_prefixes(subject: str) -> str:
         if new_value == cleaned:
             break
         cleaned = new_value
-    cleaned = cleaned.strip()
+    cleaned = SUBJECT_BRACKET_PREFIX.sub("", cleaned).strip()
     return cleaned or "No subject"
 
 
