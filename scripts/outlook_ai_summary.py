@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import re
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import msal
 import requests
@@ -186,7 +186,7 @@ def fetch_categorized_messages(token: str) -> List[Dict]:
     user_id = get_required_env("MS_GRAPH_USER_ID")
     trigger_category = os.getenv("OUTLOOK_TRIGGER_CATEGORY", DEFAULT_TRIGGER_CATEGORY)
     select_fields = (
-        "id,subject,from,receivedDateTime,categories,body,replyTo"
+        "id,subject,from,receivedDateTime,sentDateTime,categories,body,replyTo,toRecipients"
     )
     params = {
         "$top": os.getenv("OUTLOOK_FETCH_LIMIT", "10"),
@@ -195,7 +195,7 @@ def fetch_categorized_messages(token: str) -> List[Dict]:
         "$orderby": "receivedDateTime desc",
     }
 
-    url = f"https://graph.microsoft.com/v1.0/users/{user_id}/mailFolders/Inbox/messages"
+    url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages"
     response = graph_request(token, "get", url, params=params)
     payload = response.json()
     messages = payload.get("value", [])
@@ -219,14 +219,14 @@ def get_openai_client() -> OpenAI:
     return OpenAI(api_key=api_key)
 
 
-def summarize_email(client: OpenAI, subject: str, body_text: str) -> str:
+def summarize_email(client: OpenAI, subject: str, body_text: str) -> Dict[str, Any]:
     model = os.getenv("OPENAI_MODEL", OPENAI_DEFAULT_MODEL)
     system_prompt = (
         "You are an assistant that summarizes Outlook emails for busy knowledge workers. "
-        "Respond with a compact JSON object containing three arrays: "
-        "'key_points' (up to five concise bullet strings), 'todos' (actionable follow-ups without "
-        "any TODO prefix), and 'context_notes' (assumptions or background, may be empty). Do not "
-        "include markdown or text outside the JSON."
+        "Respond with a compact JSON object containing four fields: "
+        "'summary' (2-3 sentence overview), 'key_points' (concise bullet strings), 'todos' "
+        "(actionable follow-ups without any TODO prefix), and 'context_notes' (assumptions or "
+        "background, may be empty). Do not include markdown or text outside the JSON."
     )
     user_prompt = (
         "Summarize the following email for Logseq. Highlight the sender's intent, critical facts, explicit or implied "
@@ -252,14 +252,19 @@ def summarize_email(client: OpenAI, subject: str, body_text: str) -> str:
         payload = json.loads(content)
     except json.JSONDecodeError:
         logging.warning("OpenAI summary was not valid JSON; returning fallback text")
-        payload = {"key_points": [content], "todos": [], "context_notes": []}
+        payload = {
+            "summary": content,
+            "key_points": [],
+            "todos": [],
+            "context_notes": [],
+        }
 
-    return build_logseq_summary(payload)
+    return normalize_summary_payload(payload)
 
 
-def build_logseq_summary(summary: Dict) -> str:
+def normalize_summary_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     def normalize_list(key: str) -> List[str]:
-        value = summary.get(key, [])
+        value = payload.get(key, [])
         if isinstance(value, str):
             value = [value]
         if not isinstance(value, list):
@@ -272,35 +277,30 @@ def build_logseq_summary(summary: Dict) -> str:
                     cleaned.append(text)
         return cleaned
 
-    key_points = normalize_list("key_points")
-    todos = normalize_list("todos") or normalize_list("follow_ups")
-    context_notes = normalize_list("context_notes")
+    summary_text = payload.get("summary")
+    if isinstance(summary_text, list):
+        summary_text = " ".join(str(item).strip() for item in summary_text if item)
+    if not isinstance(summary_text, str):
+        summary_text = ""
+    summary_text = summary_text.strip()
 
-    lines: List[str] = []
+    normalized = {
+        "summary": summary_text,
+        "key_points": normalize_list("key_points"),
+        "todos": normalize_list("todos") or normalize_list("follow_ups"),
+        "context_notes": normalize_list("context_notes"),
+    }
 
-    if key_points:
-        lines.append("- Key Points")
-        for point in key_points:
-            lines.append(f"\t- {point}")
+    if (
+        not normalized["summary"]
+        and normalized["key_points"]
+    ):
+        normalized["summary"] = "; ".join(normalized["key_points"][:2])
 
-    if context_notes:
-        lines.append("- Context")
-        for note in context_notes:
-            lines.append(f"\t- {note}")
+    if not normalized["summary"]:
+        normalized["summary"] = "(No summary returned)"
 
-    if todos:
-        lines.append("- Tasks")
-        for todo in todos:
-            todo_text = todo.strip()
-            if todo_text.lower().startswith("todo "):
-                todo_text = todo_text[5:].strip()
-            lines.append(f"\t- TODO {todo_text}")
-
-    if not lines:
-        lines.append("- Key Points")
-        lines.append("\t- (No summary returned)")
-
-    return "\n".join(lines)
+    return normalized
 
 
 def strip_subject_prefixes(subject: str) -> str:
@@ -341,12 +341,13 @@ def sanitize_filename(name: str) -> str:
 
 
 def render_initial_markdown(
-    message: Dict, summary: str, date_link: str, subject: str
+    message: Dict, summary: Dict[str, Any], date_link: str, subject: str
 ) -> str:
     sender = message.get("from", {}).get("emailAddress", {})
     sender_name = sender.get("name", "Unknown sender")
     sender_address = sender.get("address", "")
-    received = message.get("receivedDateTime")
+    received = message.get("receivedDateTime") or message.get("sentDateTime")
+    recipients = format_recipients(message.get("toRecipients", []))
 
     sender_display = sender_name or "Unknown sender"
     if sender_address:
@@ -357,18 +358,19 @@ def render_initial_markdown(
         f"\t- Subject: {subject}",
         f"\t- From: {sender_display}",
     ]
+    if recipients:
+        lines.append(f"\t- To: {recipients}")
     if received:
         lines.append(f"\t- Received: {received}")
 
-    summary_lines = [f"\t{line}" for line in summary.splitlines() if line.strip()]
-    lines.extend(summary_lines)
+    lines.extend(format_summary_sections(summary))
 
     return "\n".join(lines).strip() + "\n"
 
 
 def render_update_section(
     message: Dict,
-    summary: str,
+    summary: Dict[str, Any],
     date_link: str,
     subject: str,
     updated_at: str,
@@ -376,7 +378,8 @@ def render_update_section(
     sender = message.get("from", {}).get("emailAddress", {})
     sender_name = sender.get("name", "Unknown sender")
     sender_address = sender.get("address", "")
-    received = message.get("receivedDateTime")
+    received = message.get("receivedDateTime") or message.get("sentDateTime")
+    recipients = format_recipients(message.get("toRecipients", []))
 
     sender_display = sender_name or "Unknown sender"
     if sender_address:
@@ -387,15 +390,62 @@ def render_update_section(
         f"\t- Update for: {subject}",
         f"\t- From: {sender_display}",
     ]
+    if recipients:
+        lines.append(f"\t- To: {recipients}")
     if received:
         lines.append(f"\t- Received: {received}")
     if updated_at:
         lines.append(f"\t- Updated: {updated_at}")
 
-    summary_lines = [f"\t{line}" for line in summary.splitlines() if line.strip()]
-    lines.extend(summary_lines)
+    lines.extend(format_summary_sections(summary))
 
     return "\n".join(lines).strip() + "\n"
+
+
+def format_summary_sections(summary: Dict[str, Any]) -> List[str]:
+    lines: List[str] = []
+
+    summary_text = summary.get("summary", "").strip()
+    if summary_text:
+        lines.append(f"\t- **Summary:** {summary_text}")
+
+    key_points = summary.get("key_points", [])
+    if key_points:
+        lines.append("\t- **Key Points:**")
+        for point in key_points:
+            lines.append(f"\t\t- {point}")
+
+    context_notes = summary.get("context_notes", [])
+    if context_notes:
+        lines.append("\t- **Context:**")
+        for note in context_notes:
+            lines.append(f"\t\t- {note}")
+
+    todos = summary.get("todos", [])
+    if todos:
+        lines.append("\t- **Tasks:**")
+        for todo in todos:
+            todo_text = todo.strip()
+            if todo_text.lower().startswith("todo "):
+                todo_text = todo_text[5:].strip()
+            lines.append(f"\t\t- TODO {todo_text}")
+
+    return lines
+
+
+def format_recipients(recipients: List[Dict]) -> str:
+    display_parts: List[str] = []
+    for recipient in recipients or []:
+        email_address = recipient.get("emailAddress", {})
+        name = (email_address.get("name") or "").strip()
+        address = (email_address.get("address") or "").strip()
+        if name and address and name.lower() != address.lower():
+            display_parts.append(f"{name} <{address}>")
+        elif address:
+            display_parts.append(address)
+        elif name:
+            display_parts.append(name)
+    return ", ".join(display_parts)
 
 
 def build_drive_service():
@@ -566,7 +616,7 @@ def process_messages():
         try:
             html_body = message.get("body", {}).get("content", "")
             plain_text = html_to_text(html_body)
-            summary = summarize_email(client, subject, plain_text)
+            summary_payload = summarize_email(client, subject, plain_text)
             date_link = wikilink_today()
             updated_at = current_run_timestamp()
 
@@ -580,7 +630,7 @@ def process_messages():
                     drive_service, existing_file["id"]
                 )
                 new_section = render_update_section(
-                    message, summary, date_link, subject, updated_at
+                    message, summary_payload, date_link, subject, updated_at
                 )
                 combined = append_section(existing_content, new_section)
                 upload_info = update_drive_markdown(
@@ -589,7 +639,7 @@ def process_messages():
             else:
                 logging.info("Creating new summary for subject '%s'", subject)
                 markdown = render_initial_markdown(
-                    message, summary, date_link, subject
+                    message, summary_payload, date_link, subject
                 )
                 upload_info = create_drive_markdown(
                     drive_service, folder_id, filename, markdown
