@@ -23,6 +23,7 @@ DEFAULT_MARKDOWN_FOLDER = "AI Email Summaries"
 DEFAULT_SECRETS_FILE = "secrets.env"
 DEFAULT_TOKEN_CACHE_FILE = ".ms_token_cache.json"
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
+SUBJECT_PREFIX_PATTERN = re.compile(r"^\s*(re|fw|fwd|aw|wg):\s*", re.IGNORECASE)
 
 
 def load_env_file(file_path: str) -> None:
@@ -302,6 +303,19 @@ def build_logseq_summary(summary: Dict) -> str:
     return "\n".join(lines)
 
 
+def strip_subject_prefixes(subject: str) -> str:
+    if not subject:
+        return "No subject"
+    cleaned = subject
+    while True:
+        new_value = SUBJECT_PREFIX_PATTERN.sub("", cleaned)
+        if new_value == cleaned:
+            break
+        cleaned = new_value
+    cleaned = cleaned.strip()
+    return cleaned or "No subject"
+
+
 def ordinal(day: int) -> str:
     if 10 <= day % 100 <= 20:
         suffix = "th"
@@ -322,52 +336,54 @@ def sanitize_filename(name: str) -> str:
     return cleaned[:180] if len(cleaned) > 180 else cleaned
 
 
-def render_initial_markdown(message: Dict, summary: str, date_link: str) -> str:
+def render_initial_markdown(
+    message: Dict, summary: str, date_link: str, subject: str
+) -> str:
     sender = message.get("from", {}).get("emailAddress", {})
     sender_name = sender.get("name", "Unknown sender")
     sender_address = sender.get("address", "")
     received = message.get("receivedDateTime")
-    subject = message.get("subject", "No subject")
+
+    sender_display = sender_name or "Unknown sender"
+    if sender_address:
+        sender_display = f"{sender_display} ({sender_address})"
 
     lines = [
-        date_link,
-        "",
-        f"# {subject}",
-        "",
-        f"- **From:** {sender_name} ({sender_address})".strip(),
+        f"- {date_link}",
+        f"\t- Subject: {subject}",
+        f"\t- From: {sender_display}",
     ]
     if received:
-        lines.append(f"- **Received:** {received}")
+        lines.append(f"\t- Received: {received}")
 
-    lines.extend([
-        "",
-        "## AI Summary",
-        summary,
-    ])
+    summary_lines = [f"\t{line}" for line in summary.splitlines() if line.strip()]
+    lines.extend(summary_lines)
 
     return "\n".join(lines).strip() + "\n"
 
 
-def render_update_section(message: Dict, summary: str, date_link: str) -> str:
+def render_update_section(
+    message: Dict, summary: str, date_link: str, subject: str
+) -> str:
     sender = message.get("from", {}).get("emailAddress", {})
     sender_name = sender.get("name", "Unknown sender")
     sender_address = sender.get("address", "")
     received = message.get("receivedDateTime")
 
+    sender_display = sender_name or "Unknown sender"
+    if sender_address:
+        sender_display = f"{sender_display} ({sender_address})"
+
     lines = [
-        date_link,
-        "",
-        "## AI Summary Update",
-        "",
-        f"- **From:** {sender_name} ({sender_address})".strip(),
+        f"- {date_link}",
+        f"\t- Update for: {subject}",
+        f"\t- From: {sender_display}",
     ]
     if received:
-        lines.append(f"- **Received:** {received}")
+        lines.append(f"\t- Received: {received}")
 
-    lines.extend([
-        "",
-        summary,
-    ])
+    summary_lines = [f"\t{line}" for line in summary.splitlines() if line.strip()]
+    lines.extend(summary_lines)
 
     return "\n".join(lines).strip() + "\n"
 
@@ -534,7 +550,8 @@ def process_messages():
 
     for message in fetch_categorized_messages(token):
         message_id = message.get("id")
-        subject = message.get("subject") or "No subject"
+        raw_subject = message.get("subject") or "No subject"
+        subject = strip_subject_prefixes(raw_subject)
         logging.info("Processing message %s", message_id)
         try:
             html_body = message.get("body", {}).get("content", "")
@@ -551,14 +568,18 @@ def process_messages():
                 existing_content = download_drive_file_text(
                     drive_service, existing_file["id"]
                 )
-                new_section = render_update_section(message, summary, date_link)
+                new_section = render_update_section(
+                    message, summary, date_link, subject
+                )
                 combined = append_section(existing_content, new_section)
                 upload_info = update_drive_markdown(
                     drive_service, existing_file["id"], combined
                 )
             else:
                 logging.info("Creating new summary for subject '%s'", subject)
-                markdown = render_initial_markdown(message, summary, date_link)
+                markdown = render_initial_markdown(
+                    message, summary, date_link, subject
+                )
                 upload_info = create_drive_markdown(
                     drive_service, folder_id, filename, markdown
                 )
