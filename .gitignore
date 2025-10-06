@@ -1,2 +1,3 @@
 secrets.env
+.ms_token_cache.json
 logseq-ai-summarizer-mm-1883f90a1a01.json

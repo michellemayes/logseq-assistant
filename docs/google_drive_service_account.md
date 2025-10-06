@@ -36,13 +36,21 @@ Follow these steps to provision a Google Cloud service account that can upload M
 
 Service accounts are not members of your Google Workspace by default. Grant access in one of the following ways:
 
-### Option A: Share the folder directly
+> ⚠️ Service accounts do not receive personal Drive storage. Uploads must target a shared drive or a folder owned by a user with available quota. You can also enable domain-wide delegation and set `GOOGLE_DELEGATED_USER` to impersonate that user.
 
-1. Locate the target folder in Google Drive.
-2. Click **Share** and add the service account email (`<service-account-name>@<project-id>.iam.gserviceaccount.com`).
-3. Assign **Editor** permission and save.
+### Option A: Shared drive (recommended)
 
-### Option B: Use domain-wide delegation
+1. Create or open a [shared drive](https://support.google.com/a/users/answer/9310249) (team drive).
+2. Add the service account email (`<service-account-name>@<project-id>.iam.gserviceaccount.com`) as a **Content manager** (or higher) member of the shared drive.
+3. Place or create the destination folder within the shared drive and capture its ID for `GOOGLE_DRIVE_FOLDER_ID`.
+
+### Option B: Share a user-owned folder and impersonate the owner
+
+1. Share the folder with the service account and keep the human user as the owner.
+2. Enable domain-wide delegation (see Option B, steps 1–5 above).
+3. Set `GOOGLE_DELEGATED_USER` to the owner’s email so uploads count against that user’s quota.
+
+### Domain-wide delegation setup (if needed)
 
 If you want the service account to impersonate users across the domain:
 

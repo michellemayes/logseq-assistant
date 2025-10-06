@@ -96,6 +96,8 @@ MS_AUTH_MODE=device_code
 # MS_DELEGATED_SCOPES=Mail.ReadWrite offline_access
 ```
 
+> 🔐 In the Azure portal, open **Authentication** for your app registration and enable **Allow public client flows** so device code authentication can succeed without a client secret.
+
 1. Execute the script interactively once:
 
    ```bash

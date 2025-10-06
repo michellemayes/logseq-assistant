@@ -1,5 +1,6 @@
 import datetime
 import io
+import json
 import logging
 import os
 import re
@@ -15,7 +16,7 @@ from googleapiclient.http import MediaInMemoryUpload, MediaIoBaseDownload
 from openai import OpenAI
 
 GRAPH_APP_SCOPE = ["https://graph.microsoft.com/.default"]
-DEFAULT_DELEGATED_SCOPES = ["Mail.ReadWrite", "offline_access"]
+DEFAULT_DELEGATED_SCOPES = ["Mail.ReadWrite"]
 DEFAULT_TRIGGER_CATEGORY = "AI Summarize"
 DEFAULT_PROCESSED_CATEGORY = "AI Summarized"
 DEFAULT_MARKDOWN_FOLDER = "AI Email Summaries"
@@ -97,8 +98,8 @@ def delegated_scopes() -> List[str]:
         ]
     else:
         scopes = list(DEFAULT_DELEGATED_SCOPES)
-    if "offline_access" not in scopes:
-        scopes.append("offline_access")
+    # if "offline_access" not in scopes:
+    #     scopes.append("offline_access")
     return scopes
 
 
@@ -146,6 +147,15 @@ def acquire_graph_token() -> str:
             result = app.acquire_token_by_device_flow(flow)
 
         if "access_token" not in result:
+            error = result.get("error")
+            description = result.get("error_description", "")
+            if error == "invalid_client" and "AADSTS7000218" in description:
+                raise RuntimeError(
+                    "Failed to acquire delegated token: AADSTS7000218. Enable "
+                    "'Allow public client flows' on the Azure AD app registration "
+                    "or set MS_CLIENT_SECRET and MS_AUTH_MODE=client_credentials to use "
+                    "application permissions."
+                )
             raise RuntimeError(f"Failed to acquire delegated token: {result}")
 
         persist_token_cache(cache, cache_path)
@@ -212,11 +222,14 @@ def summarize_email(client: OpenAI, subject: str, body_text: str) -> str:
     model = os.getenv("OPENAI_MODEL", OPENAI_DEFAULT_MODEL)
     system_prompt = (
         "You are an assistant that summarizes Outlook emails for busy knowledge workers. "
-        "Provide a concise markdown-formatted summary with bullet key points and explicit next steps."
+        "Respond with a compact JSON object containing three arrays: "
+        "'key_points' (up to five concise bullet strings), 'todos' (actionable follow-ups without "
+        "any TODO prefix), and 'context_notes' (assumptions or background, may be empty). Do not "
+        "include markdown or text outside the JSON."
     )
     user_prompt = (
-        "Summarize the following email. Highlight the sender's intent, key facts, explicit or implied "
-        "requests, and recommended follow-ups. Mark follow ups in a new section with TODO in front. If next steps are unclear, mention assumptions.\n\n"
+        "Summarize the following email for Logseq. Highlight the sender's intent, critical facts, explicit or implied "
+        "requests, and recommended follow-ups. Return JSON only.\n\n"
         f"Subject: {subject or 'No subject'}\n\n"
         f"Body: {body_text}"
     )
@@ -230,8 +243,63 @@ def summarize_email(client: OpenAI, subject: str, body_text: str) -> str:
         ],
         temperature=0.2,
         max_tokens=400,
+        response_format={"type": "json_object"},
     )
-    return response.choices[0].message.content.strip()
+    content = response.choices[0].message.content.strip()
+
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError:
+        logging.warning("OpenAI summary was not valid JSON; returning fallback text")
+        payload = {"key_points": [content], "todos": [], "context_notes": []}
+
+    return build_logseq_summary(payload)
+
+
+def build_logseq_summary(summary: Dict) -> str:
+    def normalize_list(key: str) -> List[str]:
+        value = summary.get(key, [])
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            return []
+        cleaned = []
+        for item in value:
+            if isinstance(item, str):
+                text = item.strip()
+                if text:
+                    cleaned.append(text)
+        return cleaned
+
+    key_points = normalize_list("key_points")
+    todos = normalize_list("todos") or normalize_list("follow_ups")
+    context_notes = normalize_list("context_notes")
+
+    lines: List[str] = []
+
+    if key_points:
+        lines.append("- Key Points")
+        for point in key_points:
+            lines.append(f"\t- {point}")
+
+    if context_notes:
+        lines.append("- Context")
+        for note in context_notes:
+            lines.append(f"\t- {note}")
+
+    if todos:
+        lines.append("- Tasks")
+        for todo in todos:
+            todo_text = todo.strip()
+            if todo_text.lower().startswith("todo "):
+                todo_text = todo_text[5:].strip()
+            lines.append(f"\t- TODO {todo_text}")
+
+    if not lines:
+        lines.append("- Key Points")
+        lines.append("\t- (No summary returned)")
+
+    return "\n".join(lines)
 
 
 def ordinal(day: int) -> str:
@@ -332,7 +400,13 @@ def ensure_drive_folder(service, folder_name: str) -> str:
     ).format(folder_name.replace("'", "\\'"))
     response = (
         service.files()
-        .list(q=query, spaces="drive", fields="files(id, name)")
+        .list(
+            q=query,
+            spaces="drive",
+            fields="files(id, name)",
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True,
+        )
         .execute()
     )
     files = response.get("files", [])
@@ -344,7 +418,11 @@ def ensure_drive_folder(service, folder_name: str) -> str:
         "name": folder_name,
         "mimeType": "application/vnd.google-apps.folder",
     }
-    folder = service.files().create(body=file_metadata, fields="id").execute()
+    folder = (
+        service.files()
+        .create(body=file_metadata, fields="id", supportsAllDrives=True)
+        .execute()
+    )
     return folder["id"]
 
 
@@ -355,7 +433,13 @@ def find_drive_file(service, folder_id: str, filename: str) -> Optional[Dict]:
     ).format(escaped_name, folder_id)
     response = (
         service.files()
-        .list(q=query, spaces="drive", fields="files(id, name, webViewLink)")
+        .list(
+            q=query,
+            spaces="drive",
+            fields="files(id, name, webViewLink)",
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True,
+        )
         .execute()
     )
     files = response.get("files", [])
@@ -363,7 +447,7 @@ def find_drive_file(service, folder_id: str, filename: str) -> Optional[Dict]:
 
 
 def download_drive_file_text(service, file_id: str) -> str:
-    request = service.files().get_media(fileId=file_id)
+    request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
     fh = io.BytesIO()
     downloader = MediaIoBaseDownload(fh, request)
     done = False
@@ -383,7 +467,12 @@ def create_drive_markdown(service, folder_id: str, filename: str, content: str) 
     logging.debug("Creating %s in Drive folder %s", filename, folder_id)
     return (
         service.files()
-        .create(body=file_metadata, media_body=media, fields="id, webViewLink")
+        .create(
+            body=file_metadata,
+            media_body=media,
+            fields="id, webViewLink",
+            supportsAllDrives=True,
+        )
         .execute()
     )
 
@@ -393,7 +482,12 @@ def update_drive_markdown(service, file_id: str, content: str) -> Dict:
     logging.debug("Updating Drive file %s", file_id)
     return (
         service.files()
-        .update(fileId=file_id, media_body=media, fields="id, webViewLink")
+        .update(
+            fileId=file_id,
+            media_body=media,
+            fields="id, webViewLink",
+            supportsAllDrives=True,
+        )
         .execute()
     )
 
@@ -481,7 +575,23 @@ def process_messages():
                 message.get("categories", []),
             )
         except HttpError as err:
-            logging.error("Google Drive error for message %s: %s", message_id, err)
+            content = getattr(err, "content", b"")
+            message = "Google Drive error for message %s: %s"
+            if (
+                err.resp.status == 403
+                and isinstance(content, (bytes, bytearray))
+                and b"storageQuotaExceeded" in content
+            ):
+                logging.error(
+                    "Google Drive storage quota exceeded while processing message %s. "
+                    "Service accounts do not include personal Drive storage. Upload into "
+                    "a shared drive, share a user-owned folder and set GOOGLE_DRIVE_FOLDER_ID, "
+                    "or supply GOOGLE_DELEGATED_USER with domain-wide delegation so uploads "
+                    "count against a user quota.",
+                    message_id,
+                )
+            else:
+                logging.error(message, message_id, err)
         except Exception as err:  # noqa: BLE001
             logging.error("Failed to process message %s: %s", message_id, err)
 

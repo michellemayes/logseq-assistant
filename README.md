@@ -33,6 +33,7 @@ cp secrets.example.env secrets.env
 
 - For application permissions, include `MS_CLIENT_SECRET` (the script defaults to `MS_AUTH_MODE=client_credentials`).
 - For delegated permissions, omit the client secret and set `MS_AUTH_MODE=device_code`. The first run will prompt you to complete the device sign-in; subsequent runs reuse the token cache.
+- In Azure AD, enable **Allow public client flows** on the app registration when using delegated/device-code authentication.
 
 You can change the secrets file path by setting `OUTLOOK_SECRETS_FILE` before running the script.
 
@@ -66,6 +67,8 @@ Provide the following either in `secrets.env` or through your shell environment:
 | `OPENAI_MODEL` | Model name for summarization | `gpt-4o-mini` |
 | `OPENAI_BASE_URL` | Override endpoint (Azure OpenAI, proxies, etc.) | *none* |
 
+> ⚠️ Google service accounts do not include personal Drive storage. Either upload into a shared drive, share a user-owned folder and set `GOOGLE_DRIVE_FOLDER_ID`, or enable domain-wide delegation and set `GOOGLE_DELEGATED_USER` so uploads consume a user quota.
+
 ## Running the collector
 
 ```bash
@@ -78,7 +81,7 @@ The script will:
 - Acquire a Microsoft Graph token using either client credentials or device code based on your configuration.
 - Fetch messages from the mailbox inbox that have the trigger category.
 - Create or update a Drive Markdown note named after the email subject, prepending a current-date wiki link (`[[Oct 6th, 2025]]`) to each summary section.
-- Convert the email body to plain text, request an AI-generated Markdown summary, and append new context to existing notes instead of creating duplicates.
+- Convert the email body to plain text, request an AI-generated Logseq-ready outline (tab-indented bullets with `TODO` tasks), and append new context to existing notes instead of creating duplicates.
 - Mark the email as read, remove the trigger category, and add the processed category.
 
 > 📝 Device-code mode prints a one-time sign-in URL and code if silent token acquisition fails (e.g., on first run or after cache reset).
