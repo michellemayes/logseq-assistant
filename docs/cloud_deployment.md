@@ -48,8 +48,9 @@ Upload each secret you previously used in `secrets.env`. Examples:
 ```bash
 az keyvault secret set --vault-name "$KEY_VAULT" --name MS-CLIENT-ID --value <GUID>
 az keyvault secret set --vault-name "$KEY_VAULT" --name MS-TENANT-ID --value <GUID>
-az keyvault secret set --vault-name "$KEY_VAULT" --name OPENAI-API-KEY --value <KEY>
-az keyvault secret set --vault-name "$KEY_VAULT" --name GOOGLE-SERVICE-ACCOUNT --file /path/to/service-account.json
+ az keyvault secret set --vault-name "$KEY_VAULT" --name OPENAI-API-KEY --value <KEY>
+ az keyvault secret set --vault-name "$KEY_VAULT" --name GOOGLE-SERVICE-ACCOUNT --file /path/to/service-account.json
+ az keyvault secret set --vault-name "$KEY_VAULT" --name INTERNAL-EMAIL-DOMAINS --value "pushnami.com"
 ```
 
 Repeat for any optional variables (trigger category names, OpenAI model overrides, etc.). If you are using the device-code flow, note that the token cache file is not viable in a stateless function; prefer the client-credentials setup in the cloud.
@@ -119,6 +120,7 @@ az functionapp config appsettings set --name "$FUNCTION_APP" --resource-group "$
     MS_TENANT_ID="@Microsoft.KeyVault(SecretUri=https://$KEY_VAULT.vault.azure.net/secrets/MS-TENANT-ID/)" \
     OPENAI_API_KEY="@Microsoft.KeyVault(SecretUri=https://$KEY_VAULT.vault.azure.net/secrets/OPENAI-API-KEY/)" \
     GOOGLE_SERVICE_ACCOUNT_FILE="/tmp/service-account.json" \
+    INTERNAL_EMAIL_DOMAINS="@Microsoft.KeyVault(SecretUri=https://$KEY_VAULT.vault.azure.net/secrets/INTERNAL-EMAIL-DOMAINS/)" \
     MS_AUTH_MODE=client_credentials
 ```
 

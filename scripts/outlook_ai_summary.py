@@ -25,6 +25,7 @@ DEFAULT_TOKEN_CACHE_FILE = ".ms_token_cache.json"
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 SUBJECT_PREFIX_PATTERN = re.compile(r"^\s*(re|fw|fwd|aw|wg):\s*", re.IGNORECASE)
 SUBJECT_BRACKET_PREFIX = re.compile(r"^\s*\[[^\]]*\]\s*")
+INTERNAL_EMAIL_DOMAINS_ENV = "INTERNAL_EMAIL_DOMAINS"
 
 
 def load_env_file(file_path: str) -> None:
@@ -355,11 +356,31 @@ def sanitize_filename(name: str) -> str:
     return cleaned[:180] if len(cleaned) > 180 else cleaned
 
 
+def internal_domains() -> List[str]:
+    raw = os.getenv(INTERNAL_EMAIL_DOMAINS_ENV, "")
+    domains: List[str] = []
+    for part in raw.split(","):
+        value = part.strip().lower()
+        if value:
+            domains.append(value)
+    return domains
+
+
+def is_internal_email(address: Optional[str]) -> bool:
+    if not address or "@" not in address:
+        return False
+    domain = address.split("@", 1)[1].lower()
+    for allowed in internal_domains():
+        if domain == allowed or domain.endswith(f".{allowed}"):
+            return True
+    return False
+
+
 def format_person_link(name: Optional[str], email: Optional[str]) -> str:
     name = (name or "").strip()
     email = (email or "").strip()
 
-    if email and email.lower().endswith("@pushnami.com"):
+    if is_internal_email(email):
         display = name or email.split("@", 1)[0]
         parts = [part for part in re.split(r"[\s,]+", display) if part]
         if len(parts) >= 2:
