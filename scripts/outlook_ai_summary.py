@@ -26,6 +26,7 @@ OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 SUBJECT_PREFIX_PATTERN = re.compile(r"^\s*(re|fw|fwd|aw|wg):\s*", re.IGNORECASE)
 SUBJECT_BRACKET_PREFIX = re.compile(r"^\s*\[[^\]]*\]\s*")
 INTERNAL_EMAIL_DOMAINS_ENV = "INTERNAL_EMAIL_DOMAINS"
+PROJECT_NAMES_ENV = "PROJECT_NAMES"
 
 
 def load_env_file(file_path: str) -> None:
@@ -363,6 +364,16 @@ def is_internal_email(address: Optional[str]) -> bool:
     return False
 
 
+def project_names() -> List[str]:
+    raw = os.getenv(PROJECT_NAMES_ENV, "")
+    names: List[str] = []
+    for part in re.split(r"[\n,]", raw):
+        value = part.strip()
+        if value:
+            names.append(value)
+    return names
+
+
 def format_person_link(name: Optional[str], email: Optional[str]) -> str:
     name = (name or "").strip()
     email = (email or "").strip()
@@ -392,7 +403,11 @@ def format_person_link(name: Optional[str], email: Optional[str]) -> str:
 
 
 def render_initial_markdown(
-    message: Dict, summary: Dict[str, Any], date_link: str, subject: str
+    message: Dict,
+    summary: Dict[str, Any],
+    date_link: str,
+    subject: str,
+    project_terms: List[str],
 ) -> str:
     sender = message.get("from", {}).get("emailAddress", {})
     sender_name = sender.get("name")
@@ -414,7 +429,7 @@ def render_initial_markdown(
     if received:
         lines.append(f"\t- Received: {received}")
 
-    lines.extend(format_summary_sections(summary))
+    lines.extend(format_summary_sections(summary, project_terms))
 
     return "\n".join(lines).strip() + "\n"
 
@@ -425,6 +440,7 @@ def render_update_section(
     date_link: str,
     subject: str,
     updated_at: str,
+    project_terms: List[str],
 ) -> str:
     sender = message.get("from", {}).get("emailAddress", {})
     sender_name = sender.get("name")
@@ -446,29 +462,29 @@ def render_update_section(
     if updated_at:
         lines.append(f"\t- Updated: {updated_at}")
 
-    lines.extend(format_summary_sections(summary))
+    lines.extend(format_summary_sections(summary, project_terms))
 
     return "\n".join(lines).strip() + "\n"
 
 
-def format_summary_sections(summary: Dict[str, Any]) -> List[str]:
+def format_summary_sections(summary: Dict[str, Any], project_terms: List[str]) -> List[str]:
     lines: List[str] = []
 
     summary_text = summary.get("summary", "").strip()
     if summary_text:
-        lines.append(f"\t- **Summary:** {summary_text}")
+        lines.append(f"\t- **Summary:** {link_projects(summary_text, project_terms)}")
 
     key_points = summary.get("key_points", [])
     if key_points:
         lines.append("\t- **Key Points:**")
         for point in key_points:
-            lines.append(f"\t\t- {point}")
+            lines.append(f"\t\t- {link_projects(point, project_terms)}")
 
     context_notes = summary.get("context_notes", [])
     if context_notes:
         lines.append("\t- **Context:**")
         for note in context_notes:
-            lines.append(f"\t\t- {note}")
+            lines.append(f"\t\t- {link_projects(note, project_terms)}")
 
     todos = summary.get("todos", [])
     if todos:
@@ -477,9 +493,38 @@ def format_summary_sections(summary: Dict[str, Any]) -> List[str]:
             todo_text = todo.strip()
             if todo_text.lower().startswith("todo "):
                 todo_text = todo_text[5:].strip()
-            lines.append(f"\t\t- TODO {todo_text}")
+            lines.append(f"\t\t- TODO {link_projects(todo_text, project_terms)}")
 
     return lines
+
+
+def link_projects(text: str, project_terms: List[str]) -> str:
+    if not text or not project_terms:
+        return text
+
+    linked = text
+    for term in sorted(project_terms, key=len, reverse=True):
+        clean_term = term.strip()
+        if not clean_term:
+            continue
+        escaped = re.escape(clean_term)
+        if re.search(r"\w", clean_term):
+            pattern = re.compile(
+                rf"(?<!\[\[)\b({escaped})\b(?!\]\])",
+                re.IGNORECASE,
+            )
+        else:
+            pattern = re.compile(
+                rf"(?<!\[\[)({escaped})(?!\]\])",
+                re.IGNORECASE,
+            )
+
+        def repl(match: re.Match) -> str:
+            return f"[[{match.group(0)}]]"
+
+        linked = pattern.sub(repl, linked)
+
+    return linked
 
 
 def format_recipients(recipients: List[Dict]) -> str:
@@ -651,6 +696,7 @@ def process_messages():
 
     target_folder_name = os.getenv("GOOGLE_DRIVE_FOLDER_NAME", DEFAULT_MARKDOWN_FOLDER)
     folder_id = ensure_drive_folder(drive_service, target_folder_name)
+    project_terms = project_names()
 
     for message in fetch_categorized_messages(token):
         message_id = message.get("id")
@@ -674,7 +720,7 @@ def process_messages():
                     drive_service, existing_file["id"]
                 )
                 new_section = render_update_section(
-                    message, summary_payload, date_link, subject, updated_at
+                    message, summary_payload, date_link, subject, updated_at, project_terms
                 )
                 combined = append_section(existing_content, new_section)
                 upload_info = update_drive_markdown(
@@ -683,7 +729,7 @@ def process_messages():
             else:
                 logging.info("Creating new summary for subject '%s'", subject)
                 markdown = render_initial_markdown(
-                    message, summary_payload, date_link, subject
+                    message, summary_payload, date_link, subject, project_terms
                 )
                 upload_info = create_drive_markdown(
                     drive_service, folder_id, filename, markdown

@@ -64,6 +64,7 @@ Provide the following either in `secrets.env` or through your shell environment:
 | `GOOGLE_DRIVE_FOLDER_ID` | Explicit Drive folder ID to upload into | auto-created |
 | `GOOGLE_DRIVE_FOLDER_NAME` | Folder name when auto-creating | `AI Email Summaries` |
 | `GOOGLE_DELEGATED_USER` | Email to impersonate when using domain-wide delegation | *none* |
+| `PROJECT_NAMES` | Comma-separated project names to auto-link in summaries | *none* |
 | `INTERNAL_EMAIL_DOMAINS` | Comma-separated domains treated as internal for Logseq links | *none* |
 | `OPENAI_MODEL` | Model name for summarization | `gpt-4o-mini` |
 | `OPENAI_BASE_URL` | Override endpoint (Azure OpenAI, proxies, etc.) | *none* |
