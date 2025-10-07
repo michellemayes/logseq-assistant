@@ -408,6 +408,7 @@ def render_initial_markdown(
     date_link: str,
     subject: str,
     project_terms: List[str],
+    message_id: str,
 ) -> str:
     sender = message.get("from", {}).get("emailAddress", {})
     sender_name = sender.get("name")
@@ -428,6 +429,8 @@ def render_initial_markdown(
         lines.append(f"\t- To: {recipients}")
     if received:
         lines.append(f"\t- Received: {received}")
+    if message_id:
+        lines.append(f"\t- message-id::{message_id}")
 
     lines.extend(format_summary_sections(summary, project_terms))
 
@@ -441,6 +444,7 @@ def render_update_section(
     subject: str,
     updated_at: str,
     project_terms: List[str],
+    message_id: str,
 ) -> str:
     sender = message.get("from", {}).get("emailAddress", {})
     sender_name = sender.get("name")
@@ -461,6 +465,8 @@ def render_update_section(
         lines.append(f"\t- Received: {received}")
     if updated_at:
         lines.append(f"\t- Updated: {updated_at}")
+    if message_id:
+        lines.append(f"\t- message-id::{message_id}")
 
     lines.extend(format_summary_sections(summary, project_terms))
 
@@ -657,12 +663,41 @@ def update_drive_markdown(service, file_id: str, content: str) -> Dict:
     )
 
 
-def append_section(existing_content: str, new_section: str) -> str:
-    existing = existing_content.rstrip()
+def upsert_section(existing_content: str, new_section: str, message_id: str) -> str:
     section = new_section.strip()
-    if not existing:
+    if not existing_content.strip():
         return section + "\n"
-    return f"{existing}\n\n{section}\n"
+
+    header = ""
+    body = existing_content.strip("\n")
+    if existing_content.startswith("tags::"):
+        parts = existing_content.split("\n\n", 1)
+        if len(parts) == 2:
+            header, body = parts[0], parts[1]
+        else:
+            header, body = existing_content.strip(), ""
+
+    marker = f"message-id::{message_id}" if message_id else None
+    replaced = False
+    sections: List[str] = []
+    if body:
+        body = body.strip()
+        pattern = re.compile(r"(?s)(- \[\[.*?)(?=\n\n- \[\[|\Z)")
+        for chunk in pattern.findall(body):
+            text = chunk.strip()
+            if marker and marker in text:
+                sections.append(section)
+                replaced = True
+            else:
+                sections.append(text)
+
+    if not replaced:
+        sections.append(section)
+
+    composed = "\n\n".join(sections)
+    if header:
+        return f"{header}\n\n{composed}\n"
+    return composed + "\n"
 
 
 def mark_message_processed(
@@ -720,16 +755,27 @@ def process_messages():
                     drive_service, existing_file["id"]
                 )
                 new_section = render_update_section(
-                    message, summary_payload, date_link, subject, updated_at, project_terms
+                    message,
+                    summary_payload,
+                    date_link,
+                    subject,
+                    updated_at,
+                    project_terms,
+                    message_id,
                 )
-                combined = append_section(existing_content, new_section)
+                combined = upsert_section(existing_content, new_section, message_id)
                 upload_info = update_drive_markdown(
                     drive_service, existing_file["id"], combined
                 )
             else:
                 logging.info("Creating new summary for subject '%s'", subject)
                 markdown = render_initial_markdown(
-                    message, summary_payload, date_link, subject, project_terms
+                    message,
+                    summary_payload,
+                    date_link,
+                    subject,
+                    project_terms,
+                    message_id,
                 )
                 upload_info = create_drive_markdown(
                     drive_service, folder_id, filename, markdown
