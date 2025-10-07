@@ -92,6 +92,8 @@ Run the script on a schedule using your preferred scheduler (cron, Windows Task 
 
 See [docs/scheduling.md](docs/scheduling.md) for a macOS cron setup that activates the virtualenv and logs output.
 
+For a cloud-hosted alternative triggered by Power Automate, follow [docs/cloud_deployment.md](docs/cloud_deployment.md).
+
 ## Testing notes
 
 The script assumes network access to Microsoft Graph, OpenAI, and Google Drive APIs. Run it in an environment with the appropriate firewall permissions and secrets configured.
