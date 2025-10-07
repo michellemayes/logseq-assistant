@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict
 
 from googleapiclient.errors import HttpError
 
@@ -35,7 +34,9 @@ from .summary import get_openai_client, summarize_email
 
 
 def process_messages() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+    logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 
     load_env_file(os.getenv("OUTLOOK_SECRETS_FILE"))
 
@@ -112,7 +113,7 @@ def process_messages() -> None:
         except HttpError as err:
             logging.error("Google Drive error for message %s: %s", message_id, err)
         except Exception as err:  # noqa: BLE001
-            logging.error("Failed to process message %s: %s", message_id, err)
+            logging.exception("Failed to process message %s: %s", message_id, err)
 
 
 __all__ = ["process_messages"]
