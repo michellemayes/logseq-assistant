@@ -1,4 +1,4 @@
-# Outlook AI Email Summaries
+# LogSeq Outlook Assistant
 
 This utility polls an Outlook mailbox for messages assigned to a specific category, generates an AI summary, and uploads the result as a Markdown file to Google Drive. Notes are named after the email subject, reuse the same file for future messages in the thread, and add wiki-style date links such as `[[Oct 6th, 2025]]` for each summary. It supports both application-level (client credentials) and user-scoped (delegated/device-code) Microsoft Graph access.
 
