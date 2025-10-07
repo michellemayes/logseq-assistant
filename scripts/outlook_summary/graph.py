@@ -45,6 +45,34 @@ def fetch_categorized_messages(token: str, fetch_limit: int, trigger_category: s
     return messages
 
 
+def debug_log_recent_categories(token: str, fetch_limit: int = 10) -> None:
+    if not logging.getLogger().isEnabledFor(logging.DEBUG):
+        return
+
+    user_id = get_required_env("MS_GRAPH_USER_ID")
+    select_fields = "id,subject,categories,receivedDateTime,folderId"
+    params = {
+        "$top": str(fetch_limit),
+        "$select": select_fields,
+        "$orderby": "receivedDateTime desc",
+    }
+    url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages"
+    try:
+        response = graph_request(token, "get", url, params=params)
+    except Exception as exc:  # noqa: BLE001
+        logging.debug("Failed to fetch recent messages for debugging: %s", exc)
+        return
+
+    payload = response.json()
+    for entry in payload.get("value", []):
+        logging.debug(
+            "Recent message candidate: subject='%s', categories=%s, received=%s",
+            entry.get("subject"),
+            entry.get("categories"),
+            entry.get("receivedDateTime"),
+        )
+
+
 def mark_message_processed(
     token: str,
     message_id: str,

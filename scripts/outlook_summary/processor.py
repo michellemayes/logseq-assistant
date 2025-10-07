@@ -19,7 +19,11 @@ from .drive import (
     find_drive_file,
     update_drive_markdown,
 )
-from .graph import fetch_categorized_messages, mark_message_processed
+from .graph import (
+    debug_log_recent_categories,
+    fetch_categorized_messages,
+    mark_message_processed,
+)
 from .renderer import (
     append_section,
     current_run_timestamp,
@@ -55,7 +59,16 @@ def process_messages() -> None:
     trigger_category = os.getenv("OUTLOOK_TRIGGER_CATEGORY", DEFAULT_TRIGGER_CATEGORY)
     fetch_limit = int(os.getenv("OUTLOOK_FETCH_LIMIT", "10"))
 
-    for message in fetch_categorized_messages(token, fetch_limit, trigger_category):
+    messages = fetch_categorized_messages(token, fetch_limit, trigger_category)
+    if not messages:
+        logging.debug(
+            "No messages matched category '%s'. Checking recent messages for diagnostics...",
+            trigger_category,
+        )
+        debug_log_recent_categories(token, fetch_limit)
+        return
+
+    for message in messages:
         message_id = message.get("id")
         subject = strip_subject_prefixes(message.get("subject") or "No subject")
         logging.info("Processing message %s", message_id)
