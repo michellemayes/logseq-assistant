@@ -35,10 +35,32 @@ def fetch_categorized_messages(
     params = {
         "$top": str(fetch_limit),
         "$select": select_fields,
+        "$filter": f"categories/any(c:c eq '{trigger_category}')",
         "$orderby": "receivedDateTime desc",
     }
 
     url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages"
+    response = graph_request(token, "get", url, params=params)
+    payload = response.json()
+    messages = payload.get("value", [])
+    if messages:
+        logging.info(
+            "Found %s messages with category '%s' via Graph filter",
+            len(messages),
+            trigger_category,
+        )
+        return messages
+
+    logging.debug(
+        "Server-side filter returned no matches for '%s'; scanning recent messages locally",
+        trigger_category,
+    )
+
+    params = {
+        "$top": str(fetch_limit),
+        "$select": select_fields,
+        "$orderby": "receivedDateTime desc",
+    }
     response = graph_request(token, "get", url, params=params)
     payload = response.json()
     candidates = payload.get("value", [])
@@ -50,11 +72,12 @@ def fetch_categorized_messages(
             matched.append(message)
 
     logging.info(
-        "Found %s messages with category '%s' (scanned %s recent messages)",
+        "Found %s messages with category '%s' after scanning %s recent messages",
         len(matched),
         trigger_category,
         len(candidates),
     )
+
     if logging.getLogger().isEnabledFor(logging.DEBUG):
         for message in candidates:
             logging.debug(
