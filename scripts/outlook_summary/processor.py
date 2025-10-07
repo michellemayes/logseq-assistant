@@ -41,6 +41,11 @@ def process_messages() -> None:
     log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_name, logging.INFO)
     logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("googleapiclient.discovery").setLevel(logging.WARNING)
+    logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)
 
     load_env_file(os.getenv("OUTLOOK_SECRETS_FILE"))
 

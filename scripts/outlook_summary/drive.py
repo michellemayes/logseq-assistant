@@ -28,7 +28,7 @@ def build_drive_service():
     if delegate_user:
         credentials = credentials.with_subject(delegate_user)
 
-    return build("drive", "v3", credentials=credentials)
+    return build("drive", "v3", credentials=credentials, cache_discovery=False)
 
 
 def ensure_drive_folder(service, folder_name: str, folder_id_override: Optional[str]) -> str:
