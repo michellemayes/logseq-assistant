@@ -50,7 +50,7 @@ def debug_log_recent_categories(token: str, fetch_limit: int = 10) -> None:
         return
 
     user_id = get_required_env("MS_GRAPH_USER_ID")
-    select_fields = "id,subject,categories,receivedDateTime,folderId"
+    select_fields = "id,subject,categories,receivedDateTime,parentFolderId"
     params = {
         "$top": str(fetch_limit),
         "$select": select_fields,
