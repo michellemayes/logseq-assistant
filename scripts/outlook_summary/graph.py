@@ -25,7 +25,9 @@ def graph_request(token: str, method: str, url: str, **kwargs) -> requests.Respo
     return response
 
 
-def fetch_categorized_messages(token: str, fetch_limit: int, trigger_category: str) -> List[Dict]:
+def fetch_categorized_messages(
+    token: str, fetch_limit: int, trigger_category: str
+) -> List[Dict]:
     user_id = get_required_env("MS_GRAPH_USER_ID")
     select_fields = (
         "id,subject,from,receivedDateTime,sentDateTime,categories,body,replyTo,toRecipients"
@@ -33,16 +35,35 @@ def fetch_categorized_messages(token: str, fetch_limit: int, trigger_category: s
     params = {
         "$top": str(fetch_limit),
         "$select": select_fields,
-        "$filter": f"categories/any(c:c eq '{trigger_category}')",
         "$orderby": "receivedDateTime desc",
     }
 
     url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages"
     response = graph_request(token, "get", url, params=params)
     payload = response.json()
-    messages = payload.get("value", [])
-    logging.info("Found %s messages with category '%s'", len(messages), trigger_category)
-    return messages
+    candidates = payload.get("value", [])
+
+    matched: List[Dict] = []
+    for message in candidates:
+        categories = message.get("categories") or []
+        if any(cat.strip() == trigger_category for cat in categories):
+            matched.append(message)
+
+    logging.info(
+        "Found %s messages with category '%s' (scanned %s recent messages)",
+        len(matched),
+        trigger_category,
+        len(candidates),
+    )
+    if logging.getLogger().isEnabledFor(logging.DEBUG):
+        for message in candidates:
+            logging.debug(
+                "Candidate: subject='%s', categories=%s",
+                message.get("subject"),
+                message.get("categories"),
+            )
+
+    return matched
 
 
 def debug_log_recent_categories(token: str, fetch_limit: int = 10) -> None:
