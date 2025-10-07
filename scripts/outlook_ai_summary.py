@@ -662,7 +662,7 @@ def append_section(existing_content: str, new_section: str) -> str:
     section = new_section.strip()
     if not existing:
         return section + "\n"
-    return f"{existing}\n\n---\n\n{section}\n"
+    return f"{existing}\n\n{section}\n"
 
 
 def mark_message_processed(
