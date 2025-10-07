@@ -224,10 +224,11 @@ def summarize_email(client: OpenAI, subject: str, body_text: str) -> Dict[str, A
     model = os.getenv("OPENAI_MODEL", OPENAI_DEFAULT_MODEL)
     system_prompt = (
         "You are an assistant that summarizes Outlook emails for busy knowledge workers. "
-        "Respond with a compact JSON object containing four fields: "
+        "Respond with a compact JSON object containing five fields: "
         "'summary' (2-3 sentence overview), 'key_points' (concise bullet strings), 'todos' "
-        "(actionable follow-ups without any TODO prefix), and 'context_notes' (assumptions or "
-        "background, may be empty). Do not include markdown or text outside the JSON."
+        "(actionable follow-ups without any TODO prefix), 'context_notes' (assumptions or "
+        "background, may be empty), and 'topics' (major themes or entities useful for linking). "
+        "Do not include markdown or text outside the JSON."
     )
     user_prompt = (
         "Summarize the following email for Logseq. Highlight the sender's intent, critical facts, explicit or implied "
@@ -258,6 +259,7 @@ def summarize_email(client: OpenAI, subject: str, body_text: str) -> Dict[str, A
             "key_points": [],
             "todos": [],
             "context_notes": [],
+            "topics": [],
         }
 
     return normalize_summary_payload(payload)
@@ -290,6 +292,7 @@ def normalize_summary_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "key_points": normalize_list("key_points"),
         "todos": normalize_list("todos") or normalize_list("follow_ups"),
         "context_notes": normalize_list("context_notes"),
+        "topics": normalize_list("topics"),
     }
 
     if (
@@ -300,6 +303,17 @@ def normalize_summary_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     if not normalized["summary"]:
         normalized["summary"] = "(No summary returned)"
+
+    # Deduplicate topics while preserving order
+    seen = set()
+    unique_topics = []
+    for topic in normalized["topics"]:
+        key = topic.lower()
+        if key in seen or not topic.strip():
+            continue
+        seen.add(key)
+        unique_topics.append(topic.strip())
+    normalized["topics"] = unique_topics
 
     return normalized
 
@@ -341,18 +355,44 @@ def sanitize_filename(name: str) -> str:
     return cleaned[:180] if len(cleaned) > 180 else cleaned
 
 
+def format_person_link(name: Optional[str], email: Optional[str]) -> str:
+    name = (name or "").strip()
+    email = (email or "").strip()
+
+    if email and email.lower().endswith("@pushnami.com"):
+        display = name or email.split("@", 1)[0]
+        parts = [part for part in re.split(r"[\s,]+", display) if part]
+        if len(parts) >= 2:
+            first = parts[0].capitalize()
+            last_initial = parts[-1][0].upper()
+            label = f"{first} {last_initial}"
+        else:
+            local_parts = email.split("@", 1)[0].split(".")
+            first = local_parts[0].capitalize() if local_parts else display
+            last_initial = local_parts[-1][0].upper() if len(local_parts) > 1 else ""
+            label = f"{first} {last_initial}".strip()
+        label = label or email.split("@", 1)[0]
+        return f"[[{label}]]"
+
+    if name and email and name.lower() != email.lower():
+        return f"{name} ({email})"
+    if name:
+        return name
+    if email:
+        return email
+    return "Unknown"
+
+
 def render_initial_markdown(
     message: Dict, summary: Dict[str, Any], date_link: str, subject: str
 ) -> str:
     sender = message.get("from", {}).get("emailAddress", {})
-    sender_name = sender.get("name", "Unknown sender")
-    sender_address = sender.get("address", "")
+    sender_name = sender.get("name")
+    sender_address = sender.get("address")
     received = message.get("receivedDateTime") or message.get("sentDateTime")
     recipients = format_recipients(message.get("toRecipients", []))
 
-    sender_display = sender_name or "Unknown sender"
-    if sender_address:
-        sender_display = f"{sender_display} ({sender_address})"
+    sender_display = format_person_link(sender_name, sender_address)
 
     lines = [
         "tags:: email",
@@ -379,14 +419,12 @@ def render_update_section(
     updated_at: str,
 ) -> str:
     sender = message.get("from", {}).get("emailAddress", {})
-    sender_name = sender.get("name", "Unknown sender")
-    sender_address = sender.get("address", "")
+    sender_name = sender.get("name")
+    sender_address = sender.get("address")
     received = message.get("receivedDateTime") or message.get("sentDateTime")
     recipients = format_recipients(message.get("toRecipients", []))
 
-    sender_display = sender_name or "Unknown sender"
-    if sender_address:
-        sender_display = f"{sender_display} ({sender_address})"
+    sender_display = format_person_link(sender_name, sender_address)
 
     lines = [
         f"- {date_link}",
@@ -408,21 +446,26 @@ def render_update_section(
 def format_summary_sections(summary: Dict[str, Any]) -> List[str]:
     lines: List[str] = []
 
+    topics = summary.get("topics", [])
+
+    def link_text(value: str) -> str:
+        return link_topics(value, topics)
+
     summary_text = summary.get("summary", "").strip()
     if summary_text:
-        lines.append(f"\t- **Summary:** {summary_text}")
+        lines.append(f"\t- **Summary:** {link_text(summary_text)}")
 
     key_points = summary.get("key_points", [])
     if key_points:
         lines.append("\t- **Key Points:**")
         for point in key_points:
-            lines.append(f"\t\t- {point}")
+            lines.append(f"\t\t- {link_text(point)}")
 
     context_notes = summary.get("context_notes", [])
     if context_notes:
         lines.append("\t- **Context:**")
         for note in context_notes:
-            lines.append(f"\t\t- {note}")
+            lines.append(f"\t\t- {link_text(note)}")
 
     todos = summary.get("todos", [])
     if todos:
@@ -431,9 +474,38 @@ def format_summary_sections(summary: Dict[str, Any]) -> List[str]:
             todo_text = todo.strip()
             if todo_text.lower().startswith("todo "):
                 todo_text = todo_text[5:].strip()
-            lines.append(f"\t\t- TODO {todo_text}")
+            lines.append(f"\t\t- TODO {link_text(todo_text)}")
 
     return lines
+
+
+def link_topics(text: str, topics: List[str]) -> str:
+    if not text or not topics:
+        return text
+
+    linked_text = text
+    for raw_topic in sorted(topics, key=len, reverse=True):
+        topic = raw_topic.strip()
+        if not topic:
+            continue
+        if re.search(r"\w", topic):
+            pattern = re.compile(
+                rf"(?<!\[\[)\b({re.escape(topic)})\b(?!\]\])",
+                re.IGNORECASE,
+            )
+        else:
+            pattern = re.compile(
+                rf"(?<!\[\[)({re.escape(topic)})(?!\]\])",
+                re.IGNORECASE,
+            )
+
+        def replacer(match: re.Match) -> str:
+            matched = match.group(0)
+            return f"[[{matched}]]"
+
+        linked_text = pattern.sub(replacer, linked_text)
+
+    return linked_text
 
 
 def format_recipients(recipients: List[Dict]) -> str:
@@ -442,12 +514,7 @@ def format_recipients(recipients: List[Dict]) -> str:
         email_address = recipient.get("emailAddress", {})
         name = (email_address.get("name") or "").strip()
         address = (email_address.get("address") or "").strip()
-        if name and address and name.lower() != address.lower():
-            display_parts.append(f"{name} <{address}>")
-        elif address:
-            display_parts.append(address)
-        elif name:
-            display_parts.append(name)
+        display_parts.append(format_person_link(name, address))
     return ", ".join(display_parts)
 
 
