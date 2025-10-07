@@ -225,10 +225,10 @@ def summarize_email(client: OpenAI, subject: str, body_text: str) -> Dict[str, A
     model = os.getenv("OPENAI_MODEL", OPENAI_DEFAULT_MODEL)
     system_prompt = (
         "You are an assistant that summarizes Outlook emails for busy knowledge workers. "
-        "Respond with a compact JSON object containing five fields: "
+        "Respond with a compact JSON object containing four fields: "
         "'summary' (2-3 sentence overview), 'key_points' (concise bullet strings), 'todos' "
-        "(actionable follow-ups without any TODO prefix), 'context_notes' (assumptions or "
-        "background, may be empty), and 'topics' (major themes or entities useful for linking). "
+        "(actionable follow-ups without any TODO prefix), and 'context_notes' (assumptions or "
+        "background, may be empty). "
         "Do not include markdown or text outside the JSON."
     )
     user_prompt = (
@@ -260,7 +260,6 @@ def summarize_email(client: OpenAI, subject: str, body_text: str) -> Dict[str, A
             "key_points": [],
             "todos": [],
             "context_notes": [],
-            "topics": [],
         }
 
     return normalize_summary_payload(payload)
@@ -293,7 +292,6 @@ def normalize_summary_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "key_points": normalize_list("key_points"),
         "todos": normalize_list("todos") or normalize_list("follow_ups"),
         "context_notes": normalize_list("context_notes"),
-        "topics": normalize_list("topics"),
     }
 
     if (
@@ -304,17 +302,6 @@ def normalize_summary_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     if not normalized["summary"]:
         normalized["summary"] = "(No summary returned)"
-
-    # Deduplicate topics while preserving order
-    seen = set()
-    unique_topics = []
-    for topic in normalized["topics"]:
-        key = topic.lower()
-        if key in seen or not topic.strip():
-            continue
-        seen.add(key)
-        unique_topics.append(topic.strip())
-    normalized["topics"] = unique_topics
 
     return normalized
 
@@ -467,26 +454,21 @@ def render_update_section(
 def format_summary_sections(summary: Dict[str, Any]) -> List[str]:
     lines: List[str] = []
 
-    topics = summary.get("topics", [])
-
-    def link_text(value: str) -> str:
-        return link_topics(value, topics)
-
     summary_text = summary.get("summary", "").strip()
     if summary_text:
-        lines.append(f"\t- **Summary:** {link_text(summary_text)}")
+        lines.append(f"\t- **Summary:** {summary_text}")
 
     key_points = summary.get("key_points", [])
     if key_points:
         lines.append("\t- **Key Points:**")
         for point in key_points:
-            lines.append(f"\t\t- {link_text(point)}")
+            lines.append(f"\t\t- {point}")
 
     context_notes = summary.get("context_notes", [])
     if context_notes:
         lines.append("\t- **Context:**")
         for note in context_notes:
-            lines.append(f"\t\t- {link_text(note)}")
+            lines.append(f"\t\t- {note}")
 
     todos = summary.get("todos", [])
     if todos:
@@ -495,38 +477,9 @@ def format_summary_sections(summary: Dict[str, Any]) -> List[str]:
             todo_text = todo.strip()
             if todo_text.lower().startswith("todo "):
                 todo_text = todo_text[5:].strip()
-            lines.append(f"\t\t- TODO {link_text(todo_text)}")
+            lines.append(f"\t\t- TODO {todo_text}")
 
     return lines
-
-
-def link_topics(text: str, topics: List[str]) -> str:
-    if not text or not topics:
-        return text
-
-    linked_text = text
-    for raw_topic in sorted(topics, key=len, reverse=True):
-        topic = raw_topic.strip()
-        if not topic:
-            continue
-        if re.search(r"\w", topic):
-            pattern = re.compile(
-                rf"(?<!\[\[)\b({re.escape(topic)})\b(?!\]\])",
-                re.IGNORECASE,
-            )
-        else:
-            pattern = re.compile(
-                rf"(?<!\[\[)({re.escape(topic)})(?!\]\])",
-                re.IGNORECASE,
-            )
-
-        def replacer(match: re.Match) -> str:
-            matched = match.group(0)
-            return f"[[{matched}]]"
-
-        linked_text = pattern.sub(replacer, linked_text)
-
-    return linked_text
 
 
 def format_recipients(recipients: List[Dict]) -> str:
