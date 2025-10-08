@@ -1,6 +1,6 @@
 # LogSeq Outlook Assistant
 
-This utility polls an Outlook mailbox for messages assigned to a specific category, generates an AI summary, and uploads the result as a Markdown file to Google Drive. Notes are named after the email subject, reuse the same file for future messages in the thread, and add wiki-style date links such as `[[Oct 6th, 2025]]` for each summary. It supports both application-level (client credentials) and user-scoped (delegated/device-code) Microsoft Graph access.
+This utility polls an Outlook mailbox for messages assigned to a specific category, generates an AI summary, and uploads the result as a Markdown file to Google Drive. Every note is formatted for Logseq knowledge graphs: wiki-style date links, `tags:: email`, nested bullets for key points/context/tasks, configurable project wikilinks, and internal teammates rendered as `[[First L]]`. Subsequent emails with the same subject reuse the original Markdown file so the thread stays consolidated. The workflow keeps inbox triage, follow-ups, and knowledge capture in sync without manual copy/paste, and it supports both application-level (client credentials) and user-scoped (delegated/device-code) Microsoft Graph access.
 
 ## Prerequisites
 
