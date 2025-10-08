@@ -1,6 +1,16 @@
-# LogSeq Outlook Assistant
+# Logseq Outlook Assistant
 
-This utility polls an Outlook mailbox for messages assigned to a specific category, generates an AI summary, and uploads the result as a Markdown file to Google Drive. Every note is formatted for Logseq knowledge graphs: wiki-style date links, `tags:: email`, nested bullets for key points/context/tasks, configurable project wikilinks, and internal teammates rendered as `[[First L]]`. Subsequent emails with the same subject reuse the original Markdown file so the thread stays consolidated. The workflow keeps inbox triage, follow-ups, and knowledge capture in sync without manual copy/paste, and it supports both application-level (client credentials) and user-scoped (delegated/device-code) Microsoft Graph access.
+This utility polls an Outlook mailbox for messages assigned to a specific category, generates an AI summary, and uploads the result as a Markdown file to Google Drive in Logseq ready format. 
+
+Sync your [Logseq](https://logseq.com/) personal knowledge graph to a Shared Google Drive folder and invite a Google service account to be a Content Manager of the `pages` directory for the best result!
+
+**Features:**
+
+1. Simply categorize an email with your chosen category name (e.g. `AI Summarize`) and run the script to process. 
+2. Every markdown file is formatted for Logseq knowledge graphs: wiki-style date links, `tags:: email`, nested bullets for key points/context/tasks, configurable automated project page links, and internal teammates rendered via their email domain as `[[First L]]` to link to their relationship knowledge page. 
+3. Subsequent emails with the same subject reuse the original Markdown file so the thread stays consolidated but the updated summary links to the current date's page. 
+   
+The workflow keeps inbox triage, follow-ups, and knowledge capture in sync without manual copy/paste, and it supports both application-level (client credentials) and user-scoped (delegated/device-code) Microsoft Graph access.
 
 ## Prerequisites
 
@@ -69,7 +79,7 @@ Provide the following either in `secrets.env` or through your shell environment:
 | `OPENAI_MODEL` | Model name for summarization | `gpt-4o-mini` |
 | `OPENAI_BASE_URL` | Override endpoint (Azure OpenAI, proxies, etc.) | *none* |
 
-> ⚠️ Google service accounts do not include personal Drive storage. Either upload into a shared drive, share a user-owned folder and set `GOOGLE_DRIVE_FOLDER_ID`, or enable domain-wide delegation and set `GOOGLE_DELEGATED_USER` so uploads consume a user quota.
+> ⚠️ Google service accounts do not include personal Drive storage. Either upload into a shared drive, share a user-owned folder and set `GOOGLE_DRIVE_FOLDER_ID`, or enable domain-wide delegation and set `GOOGLE_DELEGATED_USER` so uploads consume a user quota. For individual users, a Shared Google Drive folder works best.
 
 ## Running the collector
 
@@ -99,3 +109,12 @@ For a cloud-hosted alternative triggered by Power Automate, follow [docs/cloud_d
 ## Testing notes
 
 The script assumes network access to Microsoft Graph, OpenAI, and Google Drive APIs. Run it in an environment with the appropriate firewall permissions and secrets configured.
+
+## Potential Improvements
+
+- Add message threading intelligence (e.g., include message IDs or conversation IDs to better group related subjects).
+- Support Markdown output to other backends (Notion, OneNote, Obsidian) via pluggable storage adapters.
+- Provide a lightweight web dashboard to view recent summaries and manually reprocess emails.
+- Integrate Azure OpenAI/Anthropic/OpenRouter backends through configuration.
+- Expand the scheduling guide with launchd/Windows Task Scheduler templates.
+- Bundle unit tests and integration test harnesses for the renderer and Drive upload logic.
