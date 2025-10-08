@@ -106,15 +106,15 @@ See [docs/scheduling.md](docs/scheduling.md) for a macOS cron setup that activat
 
 For a cloud-hosted alternative triggered by Power Automate, follow [docs/cloud_deployment.md](docs/cloud_deployment.md).
 
-## Testing notes
+## Testing Notes
 
 The script assumes network access to Microsoft Graph, OpenAI, and Google Drive APIs. Run it in an environment with the appropriate firewall permissions and secrets configured.
 
 ## Potential Improvements
 
-- Add message threading intelligence (e.g., include message IDs or conversation IDs to better group related subjects).
-- Support Markdown output to other backends (Notion, OneNote, Obsidian) via pluggable storage adapters.
-- Provide a lightweight web dashboard to view recent summaries and manually reprocess emails.
-- Integrate Azure OpenAI/Anthropic/OpenRouter backends through configuration.
-- Expand the scheduling guide with launchd/Windows Task Scheduler templates.
-- Bundle unit tests and integration test harnesses for the renderer and Drive upload logic.
+- [ ] Add message threading intelligence (e.g., include message IDs or conversation IDs to better group related subjects).
+- [ ] Support Markdown output to other backends (Notion, OneNote, Obsidian) via pluggable storage adapters.
+- [ ] Provide a lightweight web dashboard to view recent summaries and manually reprocess emails.
+- [ ] Integrate Azure OpenAI/Anthropic/OpenRouter backends through configuration.
+- [ ] Expand the scheduling guide with launchd/Windows Task Scheduler templates.
+- [ ] Bundle unit tests and integration test harnesses for the renderer and Drive upload logic.
